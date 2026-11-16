@@ -4,16 +4,15 @@ import math
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import (
-    Message, ReplyKeyboardMarkup,
-    KeyboardButton, InlineKeyboardMarkup,
-    InlineKeyboardButton, LabeledPrice,
-    PreCheckoutQuery
+    Message, ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    LabeledPrice, PreCheckoutQuery
 )
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-BOT_TOKEN = "9176185561:AAFtwTNPwdn95tM_owrQDCeiVOJmRANzXp8"
+BOT_TOKEN = "ВСТАВЬ_НОВЫЙ_ТОКЕН"
 ADMIN_ID = 8428037052
 
 bot = Bot(BOT_TOKEN)
@@ -34,6 +33,11 @@ def menu():
         ],
         resize_keyboard=True
     )
+
+
+def admin_info(user):
+    username = f"@{user.username}" if user.username else "Нет username"
+    return f"Клиент: {username}\nTelegram ID: {user.id}"
 
 
 @dp.message(CommandStart())
@@ -120,20 +124,22 @@ async def card_payment(callback, state: FSMContext):
     await callback.message.answer(
         f"💳 ОПЛАТА ПЕРЕВОДОМ\n\n"
         f"Сумма: {data['rubles']} ₽\n\n"
-        "Реквизиты карты пока не настроены.\n"
         "Свяжись с администратором для получения реквизитов."
     )
 
     await bot.send_message(
         ADMIN_ID,
-        f"📋 НОВАЯ ЗАЯВКА\n"
-        f"Пользователь: @{callback.from_user.username}\n"
+        "🔔 НОВЫЙ ЗАКАЗ DONBUST!\n\n"
+        f"{admin_info(callback.from_user)}\n"
         f"Кубки: {data['current']} → {data['target']}\n"
-        f"Стоимость: {data['rubles']} ₽"
+        f"Количество: {data['difference']}\n"
+        f"Стоимость: {data['rubles']} ₽\n"
+        "Оплата: перевод на карту\n"
+        "Статус: ожидает оплаты"
     )
 
     await state.clear()
-    await callback.answer()
+    await callback.answer("Заявка отправлена!")
 
 
 @dp.callback_query(F.data == "stars")
@@ -148,11 +154,19 @@ async def stars_payment(callback, state: FSMContext):
         provider_token="",
         currency="XTR",
         prices=[
-            LabeledPrice(
-                label="Буст кубков",
-                amount=data["stars"]
-            )
+            LabeledPrice(label="Буст кубков", amount=data["stars"])
         ]
+    )
+
+    await bot.send_message(
+        ADMIN_ID,
+        "🔔 НОВЫЙ ЗАКАЗ DONBUST!\n\n"
+        f"{admin_info(callback.from_user)}\n"
+        f"Кубки: {data['current']} → {data['target']}\n"
+        f"Количество: {data['difference']}\n"
+        f"Стоимость: {data['stars']} ⭐\n"
+        "Оплата: Telegram Stars\n"
+        "Статус: ожидает оплаты"
     )
 
     await callback.answer()
@@ -174,9 +188,10 @@ async def successful_payment(message: Message, state: FSMContext):
 
     await bot.send_message(
         ADMIN_ID,
-        f"⭐ ПОЛУЧЕНА ОПЛАТА\n"
-        f"Пользователь: {message.from_user.id}\n"
-        f"Сумма: {payment.total_amount} Stars"
+        "✅ ОПЛАТА ПОЛУЧЕНА!\n\n"
+        f"Клиент ID: {message.from_user.id}\n"
+        f"Сумма: {payment.total_amount} Stars\n"
+        f"Payload: {payment.invoice_payload}"
     )
 
     await state.clear()
