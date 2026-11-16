@@ -1,1 +1,191 @@
+import asyncio
+import math
 
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import CommandStart
+from aiogram.types import (
+    Message, ReplyKeyboardMarkup,
+    KeyboardButton, InlineKeyboardMarkup,
+    InlineKeyboardButton, LabeledPrice,
+    PreCheckoutQuery
+)
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+
+BOT_TOKEN = "9176185561:AAFtwTNPwdn95tM_owrQDCeiVOJmRANzXp8"
+ADMIN_ID = 8428037052
+
+bot = Bot(BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+
+
+class Order(StatesGroup):
+    current = State()
+    target = State()
+    payment = State()
+
+
+def menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏆 Заказать буст")],
+            [KeyboardButton(text="💰 Цены")]
+        ],
+        resize_keyboard=True
+    )
+
+
+@dp.message(CommandStart())
+async def start(message: Message):
+    await message.answer(
+        "👑 DONBUST\n\n"
+        "Добро пожаловать!\n"
+        "Буст кубков Clash Royale.",
+        reply_markup=menu()
+    )
+
+
+@dp.message(F.text == "💰 Цены")
+async def prices(message: Message):
+    await message.answer(
+        "💰 ТАРИФЫ DONBUST\n\n"
+        "100 кубков — 50 ₽\n"
+        "100 кубков — 50 ⭐"
+    )
+
+
+@dp.message(F.text == "🏆 Заказать буст")
+async def order(message: Message, state: FSMContext):
+    await state.set_state(Order.current)
+    await message.answer("🏆 Введи текущее количество кубков:")
+
+
+@dp.message(Order.current)
+async def current(message: Message, state: FSMContext):
+    if not message.text or not message.text.isdigit():
+        await message.answer("Введи число.")
+        return
+
+    await state.update_data(current=int(message.text))
+    await state.set_state(Order.target)
+    await message.answer("🎯 Сколько кубков хочешь получить?")
+
+
+@dp.message(Order.target)
+async def target(message: Message, state: FSMContext):
+    if not message.text or not message.text.isdigit():
+        await message.answer("Введи число.")
+        return
+
+    data = await state.get_data()
+    difference = int(message.text) - data["current"]
+
+    if difference <= 0:
+        await message.answer("Цель должна быть выше текущего количества.")
+        return
+
+    rubles = math.ceil(difference * 50 / 100)
+    stars = math.ceil(difference * 50 / 100)
+
+    await state.update_data(
+        target=int(message.text),
+        difference=difference,
+        rubles=rubles,
+        stars=stars
+    )
+
+    await state.set_state(Order.payment)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="stars")],
+        [InlineKeyboardButton(text="💳 Перевод на карту", callback_data="card")]
+    ])
+
+    await message.answer(
+        f"📋 ТВОЙ ЗАКАЗ\n\n"
+        f"Сейчас: {data['current']}\n"
+        f"Цель: {message.text}\n"
+        f"Нужно кубков: {difference}\n\n"
+        f"Стоимость: {rubles} ₽ или {stars} ⭐\n\n"
+        "Выбери способ оплаты:",
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query(F.data == "card")
+async def card_payment(callback, state: FSMContext):
+    data = await state.get_data()
+
+    await callback.message.answer(
+        f"💳 ОПЛАТА ПЕРЕВОДОМ\n\n"
+        f"Сумма: {data['rubles']} ₽\n\n"
+        "Реквизиты карты пока не настроены.\n"
+        "Свяжись с администратором для получения реквизитов."
+    )
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"📋 НОВАЯ ЗАЯВКА\n"
+        f"Пользователь: @{callback.from_user.username}\n"
+        f"Кубки: {data['current']} → {data['target']}\n"
+        f"Стоимость: {data['rubles']} ₽"
+    )
+
+    await state.clear()
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "stars")
+async def stars_payment(callback, state: FSMContext):
+    data = await state.get_data()
+
+    await bot.send_invoice(
+        chat_id=callback.from_user.id,
+        title="DonBust — буст кубков",
+        description=f"Буст на {data['difference']} кубков",
+        payload=f"boost_{callback.from_user.id}_{data['difference']}",
+        provider_token="",
+        currency="XTR",
+        prices=[
+            LabeledPrice(
+                label="Буст кубков",
+                amount=data["stars"]
+            )
+        ]
+    )
+
+    await callback.answer()
+
+
+@dp.pre_checkout_query()
+async def checkout(query: PreCheckoutQuery):
+    await query.answer(ok=True)
+
+
+@dp.message(F.successful_payment)
+async def successful_payment(message: Message, state: FSMContext):
+    payment = message.successful_payment
+
+    await message.answer(
+        "⭐ Оплата получена!\n"
+        "Администратор уведомлён."
+    )
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"⭐ ПОЛУЧЕНА ОПЛАТА\n"
+        f"Пользователь: {message.from_user.id}\n"
+        f"Сумма: {payment.total_amount} Stars"
+    )
+
+    await state.clear()
+
+
+async def main():
+    print("DonBust запущен!")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
